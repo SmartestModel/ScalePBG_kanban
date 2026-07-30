@@ -3,22 +3,22 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { useBoardStore } from '../store/useBoardStore';
 import { useRealtimeTasks } from '../hooks/useRealtimeBoard';
-import { getBacklog, getProjectSprints, addItemsToSprint, createTask } from '../services/api';
-import { Task, Sprint, TaskStatus, TaskPriority, BOARD_COLUMNS } from '../types';
+import { getBacklog, getProjectSprints, addItemsToSprint, createTask, getEpics, getStories, createEpic, createStory } from '../services/api';
+import { Task, Sprint, TaskStatus, TaskPriority, BOARD_COLUMNS, Epic, Story } from '../types';
 import { PriorityBadge, StatusBadge } from '../components/common/Badge';
 import { Avatar } from '../components/common/Avatar';
 import { Modal } from '../components/common/Modal';
 import { getOrgMembers } from '../services/api';
 import { OrgMember } from '../types';
 import {
-  Plus, Filter, ArrowUpDown, Inbox, Rocket, Clock, MoreHorizontal,
+  Plus, Filter, ArrowUpDown, Inbox, Rocket, Clock, MoreHorizontal, Zap, BookOpen,
 } from 'lucide-react';
 
 type SortKey = 'priority' | 'created' | 'estimate';
 type FilterStatus = 'all' | TaskStatus;
 
 const PRIORITY_ORDER: Record<TaskPriority, number> = {
-  urgent: 0, high: 1, medium: 2, low: 3,
+  urgent: 0, high: 1, medium: 2, low: 3, lowest: 4,
 };
 
 export const BacklogPage: React.FC = () => {
@@ -30,6 +30,8 @@ export const BacklogPage: React.FC = () => {
   const upsertTask   = useBoardStore((s) => s.upsertTask);
 
   const [sprints, setSprints]               = useState<Sprint[]>([]);
+  const [epics, setEpics]                   = useState<Epic[]>([]);
+  const [stories, setStories]               = useState<Story[]>([]);
   const [members, setMembers]               = useState<OrgMember[]>([]);
   const [isLoading, setIsLoading]           = useState(true);
   const [sortKey, setSortKey]               = useState<SortKey>('priority');
@@ -42,7 +44,19 @@ export const BacklogPage: React.FC = () => {
   const [newTitle, setNewTitle]             = useState('');
   const [newPriority, setNewPriority]       = useState<TaskPriority>('medium');
   const [newEstimate, setNewEstimate]       = useState('');
+  const [newStoryId, setNewStoryId]         = useState('');
   const [creating, setCreating]             = useState(false);
+
+  // Epic & Story Modals
+  const [createEpicOpen, setCreateEpicOpen]   = useState(false);
+  const [epicTitle, setEpicTitle]             = useState('');
+  const [epicGoal, setEpicGoal]               = useState('');
+  const [epicColor, setEpicColor]             = useState('#3B82F6');
+
+  const [createStoryOpen, setCreateStoryOpen] = useState(false);
+  const [storyTitle, setStoryTitle]           = useState('');
+  const [storyEpicId, setStoryEpicId]         = useState('');
+  const [storyPoints, setStoryPoints]         = useState('3');
 
   // Real-time updates
   useRealtimeTasks(activeProject?.id ?? null);
@@ -55,12 +69,19 @@ export const BacklogPage: React.FC = () => {
       getBacklog(activeProject.id),
       getProjectSprints(activeProject.id),
       getOrgMembers(activeOrgId),
-    ]).then(([backlogRes, sprintsRes, membersRes]) => {
+      getEpics(activeProject.id),
+      getStories(activeProject.id),
+    ]).then(([backlogRes, sprintsRes, membersRes, epicsRes, storiesRes]) => {
       if (backlogRes.success && backlogRes.data) setTasks(backlogRes.data);
       if (sprintsRes.success)  setSprints(sprintsRes.data ?? []);
       if (membersRes.success)  setMembers(membersRes.data ?? []);
+      if (epicsRes.success)    setEpics(epicsRes.data ?? []);
+      if (storiesRes.success)  setStories(storiesRes.data ?? []);
     }).finally(() => setIsLoading(false));
   }, [activeProject?.id, activeOrgId]);
+
+  const epicsMap = Object.fromEntries(epics.map((e) => [e.id, e]));
+  const storiesMap = Object.fromEntries(stories.map((s) => [s.id, s]));
 
   const backlogTasks = Object.values(tasks).filter(
     (t) => t.projectId === activeProject?.id && t.status === 'backlog'
@@ -125,6 +146,7 @@ export const BacklogPage: React.FC = () => {
         title: newTitle.trim(),
         priority: newPriority,
         estimateHours: parseFloat(newEstimate) || 0,
+        storyId: newStoryId || undefined,
         status: 'backlog',
       });
       if (res.success && res.data) {
@@ -132,10 +154,42 @@ export const BacklogPage: React.FC = () => {
         setNewTitle('');
         setNewEstimate('');
         setNewPriority('medium');
+        setNewStoryId('');
         setCreateOpen(false);
       }
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleCreateEpic = async () => {
+    if (!epicTitle.trim() || !activeProject) return;
+    const res = await createEpic(activeProject.id, {
+      title: epicTitle.trim(),
+      goal: epicGoal.trim(),
+      color: epicColor,
+    });
+    if (res.success && res.data) {
+      setEpics((prev) => [...prev, res.data!]);
+      setEpicTitle('');
+      setEpicGoal('');
+      setCreateEpicOpen(false);
+    }
+  };
+
+  const handleCreateStory = async () => {
+    if (!storyTitle.trim() || !activeProject) return;
+    const res = await createStory({
+      projectId: activeProject.id,
+      epicId: storyEpicId || undefined,
+      title: storyTitle.trim(),
+      storyPoints: parseInt(storyPoints, 10) || 0,
+    });
+    if (res.success && res.data) {
+      setStories((prev) => [...prev, res.data!]);
+      setStoryTitle('');
+      setStoryEpicId('');
+      setCreateStoryOpen(false);
     }
   };
 
@@ -200,6 +254,22 @@ export const BacklogPage: React.FC = () => {
             </button>
           )}
 
+          <button
+            id="backlog-add-epic"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setCreateEpicOpen(true)}
+          >
+            <Zap size={13} style={{ color: 'var(--brand-primary)' }} />
+            New Epic
+          </button>
+          <button
+            id="backlog-add-story"
+            className="btn btn-secondary btn-sm"
+            onClick={() => setCreateStoryOpen(true)}
+          >
+            <BookOpen size={13} style={{ color: 'var(--accent-violet)' }} />
+            New Story
+          </button>
           <button
             id="backlog-add-task"
             className="btn btn-primary btn-sm"
@@ -289,15 +359,47 @@ export const BacklogPage: React.FC = () => {
                       />
                     </td>
                     <td style={{ padding: '10px 8px' }}>
-                      <span
-                        style={{
-                          fontSize: 13,
-                          fontWeight: 500,
-                          color: isSelected ? 'var(--brand-primary)' : 'var(--text-primary)',
-                        }}
-                      >
-                        {task.title}
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 500,
+                            color: isSelected ? 'var(--brand-primary)' : 'var(--text-primary)',
+                          }}
+                        >
+                          {task.title}
+                        </span>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                          {task.storyId && storiesMap[task.storyId] && (
+                            <span
+                              className="badge"
+                              style={{
+                                background: 'var(--brand-subtle)',
+                                color: 'var(--brand-primary)',
+                                borderColor: 'hsla(217,91%,60%,0.3)',
+                                fontSize: 10,
+                                padding: '1px 6px',
+                              }}
+                            >
+                              📖 {storiesMap[task.storyId].title} ({storiesMap[task.storyId].storyPoints} pts)
+                            </span>
+                          )}
+                          {task.storyId && storiesMap[task.storyId]?.epicId && epicsMap[storiesMap[task.storyId].epicId!] && (
+                            <span
+                              className="badge"
+                              style={{
+                                background: `${epicsMap[storiesMap[task.storyId].epicId!].color}20`,
+                                color: epicsMap[storiesMap[task.storyId].epicId!].color,
+                                borderColor: `${epicsMap[storiesMap[task.storyId].epicId!].color}40`,
+                                fontSize: 10,
+                                padding: '1px 6px',
+                              }}
+                            >
+                              ⚡ {epicsMap[storiesMap[task.storyId].epicId!].title}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td style={{ padding: '10px 8px' }}>
                       <PriorityBadge priority={task.priority} />
@@ -431,10 +533,11 @@ export const BacklogPage: React.FC = () => {
                 value={newPriority}
                 onChange={(e) => setNewPriority(e.target.value as TaskPriority)}
               >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
+                <option value="lowest">🔵 Lowest</option>
+                <option value="low">🟢 Low</option>
+                <option value="medium">🟡 Medium</option>
+                <option value="high">🟠 High</option>
+                <option value="urgent">🔴 Urgent</option>
               </select>
             </div>
             <div className="input-group">
@@ -450,6 +553,155 @@ export const BacklogPage: React.FC = () => {
                 onChange={(e) => setNewEstimate(e.target.value)}
               />
             </div>
+          </div>
+          <div className="input-group">
+            <label className="input-label">Link User Story</label>
+            <select
+              id="new-backlog-story"
+              className="input"
+              value={newStoryId}
+              onChange={(e) => setNewStoryId(e.target.value)}
+            >
+              <option value="">— None —</option>
+              {stories.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.title} ({s.storyPoints} pts)
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Create Epic Modal */}
+      <Modal
+        isOpen={createEpicOpen}
+        onClose={() => setCreateEpicOpen(false)}
+        title="Create New Epic"
+        size="sm"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setCreateEpicOpen(false)}>
+              Cancel
+            </button>
+            <button
+              id="create-epic-submit"
+              className="btn btn-primary"
+              onClick={handleCreateEpic}
+              disabled={!epicTitle.trim()}
+            >
+              Create Epic
+            </button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="input-group">
+            <label className="input-label">Epic Title</label>
+            <input
+              id="new-epic-title"
+              className="input"
+              placeholder="e.g. Platform Redesign"
+              value={epicTitle}
+              onChange={(e) => setEpicTitle(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="input-group">
+            <label className="input-label">Goal / Summary</label>
+            <input
+              id="new-epic-goal"
+              className="input"
+              placeholder="High-level objective"
+              value={epicGoal}
+              onChange={(e) => setEpicGoal(e.target.value)}
+            />
+          </div>
+          <div className="input-group">
+            <label className="input-label">Badge Color</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'].map((color) => (
+                <button
+                  key={color}
+                  type="button"
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: '50%',
+                    background: color,
+                    border: epicColor === color ? '2px solid white' : 'none',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setEpicColor(color)}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Create Story Modal */}
+      <Modal
+        isOpen={createStoryOpen}
+        onClose={() => setCreateStoryOpen(false)}
+        title="Create User Story"
+        size="sm"
+        footer={
+          <>
+            <button className="btn btn-secondary" onClick={() => setCreateStoryOpen(false)}>
+              Cancel
+            </button>
+            <button
+              id="create-story-submit"
+              className="btn btn-primary"
+              onClick={handleCreateStory}
+              disabled={!storyTitle.trim()}
+            >
+              Create Story
+            </button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="input-group">
+            <label className="input-label">Story Title</label>
+            <input
+              id="new-story-title"
+              className="input"
+              placeholder="As a user, I want..."
+              value={storyTitle}
+              onChange={(e) => setStoryTitle(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="input-group">
+            <label className="input-label">Parent Epic</label>
+            <select
+              id="new-story-epic"
+              className="input"
+              value={storyEpicId}
+              onChange={(e) => setStoryEpicId(e.target.value)}
+            >
+              <option value="">— None —</option>
+              {epics.map((e) => (
+                <option key={e.id} value={e.id}>
+                  ⚡ {e.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="input-group">
+            <label className="input-label">Story Points</label>
+            <select
+              id="new-story-points"
+              className="input"
+              value={storyPoints}
+              onChange={(e) => setStoryPoints(e.target.value)}
+            >
+              {[1, 2, 3, 5, 8, 13, 21].map((pts) => (
+                <option key={pts} value={pts}>{pts} pts</option>
+              ))}
+            </select>
           </div>
         </div>
       </Modal>

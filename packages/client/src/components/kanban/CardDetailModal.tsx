@@ -2,15 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { Modal } from '../common/Modal';
 import { Avatar } from '../common/Avatar';
 import { PriorityBadge, StatusBadge } from '../common/Badge';
-import { Task, Subtask, Comment, OrgMember } from '../../types';
+import { Task, Subtask, Comment, OrgMember, Epic, Story, TaskPriority } from '../../types';
 import {
   getTask, addComment, addSubtask, toggleSubtask, updateTask,
+  getEpics, getStories,
 } from '../../services/api';
 import { useAuthStore } from '../../store/useAuthStore';
 import { useBoardStore } from '../../store/useBoardStore';
 import {
   Clock, MessageSquare, CheckSquare, Send, Plus, Check,
-  User, Flag,
+  User, Flag, Zap, BookOpen, Edit3,
 } from 'lucide-react';
 
 interface CardDetailModalProps {
@@ -27,10 +28,15 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
   const [task, setTask] = useState<Task | null>(null);
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [epics, setEpics] = useState<Epic[]>([]);
+  const [stories, setStories] = useState<Story[]>([]);
   const [commentBody, setCommentBody] = useState('');
   const [newSubtask, setNewSubtask] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'overview' | 'comments' | 'subtasks'>('overview');
+
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [descriptionText, setDescriptionText] = useState('');
 
   const user = useAuthStore((s) => s.user);
   const upsertTask = useBoardStore((s) => s.upsertTask);
@@ -38,11 +44,21 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
   useEffect(() => {
     if (!taskId) return;
     setIsLoading(true);
-    getTask(taskId).then((res) => {
+    setEditingDescription(false);
+    getTask(taskId).then(async (res) => {
       if (res.success && res.data) {
         setTask(res.data);
+        setDescriptionText(res.data.description ?? '');
         setSubtasks(res.data.subtasks ?? []);
         setComments(res.data.comments ?? []);
+        if (res.data.projectId) {
+          const [epicsRes, storiesRes] = await Promise.all([
+            getEpics(res.data.projectId),
+            getStories(res.data.projectId),
+          ]);
+          if (epicsRes.success) setEpics(epicsRes.data ?? []);
+          if (storiesRes.success) setStories(storiesRes.data ?? []);
+        }
       }
     }).finally(() => setIsLoading(false));
   }, [taskId]);
@@ -90,6 +106,55 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
     }
   };
 
+  const handleStoryChange = async (storyId: string) => {
+    if (!task) return;
+    const res = await updateTask(task.id, {
+      version: task.version,
+      storyId: storyId || undefined,
+    });
+    if (res.success && res.data) {
+      setTask(res.data);
+      upsertTask(res.data);
+    }
+  };
+
+  const handleSaveDescription = async () => {
+    if (!task) return;
+    const res = await updateTask(task.id, {
+      version: task.version,
+      description: descriptionText.trim(),
+    });
+    if (res.success && res.data) {
+      setTask(res.data);
+      upsertTask(res.data);
+      setEditingDescription(false);
+    }
+  };
+
+  const handleAssigneeChange = async (assigneeId: string) => {
+    if (!task) return;
+    const res = await updateTask(task.id, {
+      version: task.version,
+      assigneeId: assigneeId || undefined,
+    });
+    if (res.success && res.data) {
+      setTask(res.data);
+      upsertTask(res.data);
+    }
+  };
+
+  const handlePriorityChange = async (priority: TaskPriority) => {
+    if (!task) return;
+    const res = await updateTask(task.id, {
+      version: task.version,
+      priority,
+    });
+    if (res.success && res.data) {
+      setTask(res.data);
+      upsertTask(res.data);
+    }
+  };
+
   const memberMap = Object.fromEntries(members.map((m) => [m.uid, m]));
   const assignee = task?.assigneeId ? memberMap[task.assigneeId] : null;
 
@@ -130,14 +195,69 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
 
             {/* Overview Tab */}
             {activeTab === 'overview' && (
-              <div>
-                <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>
-                  {task.description || (
-                    <span style={{ color: 'var(--text-disabled)', fontStyle: 'italic' }}>
-                      No description yet.
-                    </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)' }}>Description</span>
+                  {!editingDescription && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ fontSize: 12, gap: 4 }}
+                      onClick={() => { setEditingDescription(true); setDescriptionText(task.description ?? ''); }}
+                    >
+                      <Edit3 size={12} />
+                      Edit Description
+                    </button>
                   )}
-                </p>
+                </div>
+
+                {editingDescription ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <textarea
+                      id="task-description-input"
+                      className="input"
+                      style={{ minHeight: 120, fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }}
+                      placeholder="Add a detailed description..."
+                      value={descriptionText}
+                      onChange={(e) => setDescriptionText(e.target.value)}
+                    />
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => setEditingDescription(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        id="save-description-btn"
+                        className="btn btn-primary btn-sm"
+                        onClick={handleSaveDescription}
+                      >
+                        Save Description
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p
+                    style={{
+                      color: 'var(--text-secondary)',
+                      fontSize: 14,
+                      lineHeight: 1.6,
+                      whiteSpace: 'pre-wrap',
+                      background: 'var(--bg-glass)',
+                      padding: '12px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--border-subtle)',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => { setEditingDescription(true); setDescriptionText(task.description ?? ''); }}
+                  >
+                    {task.description || (
+                      <span style={{ color: 'var(--text-disabled)', fontStyle: 'italic' }}>
+                        No description provided. Click here to add one.
+                      </span>
+                    )}
+                  </p>
+                )}
               </div>
             )}
 
@@ -287,7 +407,7 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
           {/* Right: metadata sidebar */}
           <div
             style={{
-              width: 180,
+              width: 200,
               flexShrink: 0,
               display: 'flex',
               flexDirection: 'column',
@@ -312,19 +432,54 @@ export const CardDetailModal: React.FC<CardDetailModalProps> = ({
               </select>
             </MetaItem>
 
-            <MetaItem label="Priority" icon={<Flag size={13} />}>
-              <PriorityBadge priority={task.priority} />
+            <MetaItem label="User Story" icon={<BookOpen size={13} />}>
+              <select
+                id="task-story-select"
+                className="input"
+                style={{ padding: '4px 8px', fontSize: 12 }}
+                value={task.storyId ?? ''}
+                onChange={(e) => handleStoryChange(e.target.value)}
+              >
+                <option value="">None</option>
+                {stories.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.title} ({s.storyPoints} pts)
+                  </option>
+                ))}
+              </select>
+            </MetaItem>
+
+            <MetaItem label="Priority (5 Levels)" icon={<Flag size={13} />}>
+              <select
+                id="task-priority-select"
+                className="input"
+                style={{ padding: '4px 8px', fontSize: 12 }}
+                value={task.priority}
+                onChange={(e) => handlePriorityChange(e.target.value as TaskPriority)}
+              >
+                <option value="lowest">🔵 Lowest</option>
+                <option value="low">🟢 Low</option>
+                <option value="medium">🟡 Medium</option>
+                <option value="high">🟠 High</option>
+                <option value="urgent">🔴 Urgent (Highest)</option>
+              </select>
             </MetaItem>
 
             <MetaItem label="Assignee" icon={<User size={13} />}>
-              {assignee ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Avatar name={assignee.name} avatarUrl={assignee.avatarUrl} size="sm" />
-                  <span style={{ fontSize: 12 }}>{assignee.name}</span>
-                </div>
-              ) : (
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Unassigned</span>
-              )}
+              <select
+                id="task-assignee-select"
+                className="input"
+                style={{ padding: '4px 8px', fontSize: 12 }}
+                value={task.assigneeId ?? ''}
+                onChange={(e) => handleAssigneeChange(e.target.value)}
+              >
+                <option value="">Unassigned</option>
+                {members.map((m) => (
+                  <option key={m.uid} value={m.uid}>
+                    {m.name ?? m.email ?? m.uid}
+                  </option>
+                ))}
+              </select>
             </MetaItem>
 
             {task.estimateHours > 0 && (

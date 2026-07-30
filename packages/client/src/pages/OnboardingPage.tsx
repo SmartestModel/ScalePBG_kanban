@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { createOrg, searchOrgBySlug, createAccessRequest } from '../services/api';
+import { createOrg, searchOrgBySlug, createAccessRequest, getAllPublicOrgs } from '../services/api';
+import { auth } from '../firebase/config';
 import { useAuthStore } from '../store/useAuthStore';
 import { Organization } from '../types';
 import { Building2, Search, Plus, ArrowRight, Clock } from 'lucide-react';
@@ -12,6 +13,7 @@ export const OnboardingPage: React.FC = () => {
   const [orgSlug, setOrgSlug] = useState('');
   const [searchSlug, setSearchSlug] = useState('');
   const [foundOrg, setFoundOrg] = useState<Pick<Organization, 'id' | 'name' | 'slug'> | null>(null);
+  const [availableOrgs, setAvailableOrgs] = useState<Pick<Organization, 'id' | 'name' | 'slug'>[]>([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [pendingRequest, setPendingRequest] = useState(false);
@@ -23,6 +25,14 @@ export const OnboardingPage: React.FC = () => {
 
   const slugify = (name: string) =>
     name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+  React.useEffect(() => {
+    if (step === 'request') {
+      getAllPublicOrgs().then((res) => {
+        if (res.success && res.data) setAvailableOrgs(res.data);
+      });
+    }
+  }, [step]);
 
   const handleOrgNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setOrgName(e.target.value);
@@ -41,7 +51,22 @@ export const OnboardingPage: React.FC = () => {
         return;
       }
       const newOrg = res.data!;
-      setProfile(user!, [...orgs, newOrg]);
+      const fbUser = auth.currentUser;
+      const currentUser = user ?? (fbUser ? {
+        id: fbUser.uid,
+        email: fbUser.email ?? '',
+        name: fbUser.displayName ?? fbUser.email?.split('@')[0] ?? 'User',
+        avatarUrl: fbUser.photoURL ?? undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      } : {
+        id: 'user-1',
+        email: 'user@example.com',
+        name: 'User',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      setProfile(currentUser, [...orgs, newOrg]);
       setActiveOrg(newOrg.id, 'admin');
     } catch {
       setError('Failed to create organization. Please try again.');
@@ -188,7 +213,7 @@ export const OnboardingPage: React.FC = () => {
                 value={orgSlug}
                 onChange={(e) => setOrgSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
                 required
-                pattern="[a-z0-9-]+"
+                pattern="[a-z0-9\-]+"
               />
               <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
                 Others will search for your org using this slug.
@@ -264,6 +289,39 @@ export const OnboardingPage: React.FC = () => {
                     Request Access
                   </button>
                 </div>
+              </div>
+            )}
+            {availableOrgs.length > 0 && !foundOrg && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>
+                  Existing Organizations:
+                </div>
+                {availableOrgs.map((org) => (
+                  <div
+                    key={org.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 14px',
+                      background: 'var(--bg-glass)',
+                      border: '1px solid var(--border-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>{org.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>/{org.slug}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => { setFoundOrg(org); setError(''); }}
+                    >
+                      Select <ArrowRight size={13} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>

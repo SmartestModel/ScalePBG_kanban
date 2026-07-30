@@ -1,7 +1,7 @@
 import React from 'react';
 import { TaskPriority, TaskStatus } from '../../types';
 import {
-  AlertCircle, ArrowUp, ArrowRight, ArrowDown,
+  AlertCircle, ArrowUp, ArrowRight, ArrowDown, ChevronDown,
   Circle, CheckCircle2, LayoutList, GitPullRequest, Loader2,
 } from 'lucide-react';
 
@@ -12,6 +12,7 @@ const PRIORITY_ICONS: Record<TaskPriority, React.ReactNode> = {
   high:   <ArrowUp size={10} />,
   medium: <ArrowRight size={10} />,
   low:    <ArrowDown size={10} />,
+  lowest: <ChevronDown size={10} />,
 };
 
 interface PriorityBadgeProps {

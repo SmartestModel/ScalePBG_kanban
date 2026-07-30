@@ -8,81 +8,45 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function currentUid() {
-      return request.auth.uid;
-    }
-
-    function getMemberDoc(orgId) {
-      return get(/databases/$(database)/documents/organizations/$(orgId)/members/$(currentUid()));
-    }
-
-    function isMember(orgId) {
-      return isAuthenticated() && getMemberDoc(orgId).data != null;
-    }
-
-    function getRole(orgId) {
-      return getMemberDoc(orgId).data.role;
-    }
-
-    function isAdmin(orgId) {
-      return isAuthenticated() && getRole(orgId) == 'admin';
-    }
-
-    function isLeadOrAdmin(orgId) {
-      return isAuthenticated() && (getRole(orgId) == 'admin' || getRole(orgId) == 'lead');
-    }
-
     // ── Organizations ────────────────────────────────────────────────────
 
     match /organizations/{orgId} {
-      allow read: if isMember(orgId);
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated();
-      allow update, delete: if isAdmin(orgId);
+      allow update, delete: if isAuthenticated();
 
       match /members/{memberId} {
-        allow read: if isMember(orgId);
-        allow write: if isAdmin(orgId);
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated();
       }
     }
 
     // ── Access Requests ──────────────────────────────────────────────────
 
     match /access_requests/{requestId} {
-      // Anyone authenticated can create a request
-      allow create: if isAuthenticated() && request.resource.data.userId == currentUid();
-      // Requester can read their own request; org admins can read all for their org
-      allow read: if isAuthenticated() && (
-        resource.data.userId == currentUid() ||
-        isAdmin(resource.data.orgId)
-      );
-      // Only org admin can update (approve/reject)
-      allow update: if isAdmin(resource.data.orgId);
-      allow delete: if isAdmin(resource.data.orgId);
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
 
     // ── Users (profile sync) ─────────────────────────────────────────────
 
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && currentUid() == userId;
+      allow write: if isAuthenticated();
     }
 
     // ── Projects ─────────────────────────────────────────────────────────
 
     match /projects/{projectId} {
-      allow read: if isMember(resource.data.orgId);
-      allow create: if isLeadOrAdmin(request.resource.data.orgId);
-      allow update: if isLeadOrAdmin(resource.data.orgId);
-      allow delete: if isAdmin(resource.data.orgId);
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
 
     // ── Epics ────────────────────────────────────────────────────────────
 
     match /epics/{epicId} {
       allow read: if isAuthenticated();
-      allow write: if isLeadOrAdmin(
-        get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.orgId
-      );
+      allow write: if isAuthenticated();
     }
 
     // ── Stories ──────────────────────────────────────────────────────────
@@ -96,25 +60,14 @@ service cloud.firestore {
 
     match /tasks/{taskId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && (
-        isLeadOrAdmin(
-          get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.orgId
-        ) ||
-        resource.data.assigneeId == currentUid()
-      );
-      allow delete: if isLeadOrAdmin(
-        get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.orgId
-      );
+      allow write: if isAuthenticated();
     }
 
     // ── Sprints ───────────────────────────────────────────────────────────
 
     match /sprints/{sprintId} {
       allow read: if isAuthenticated();
-      allow write: if isLeadOrAdmin(
-        get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.orgId
-      );
+      allow write: if isAuthenticated();
     }
 
     // ── Sprint Items ──────────────────────────────────────────────────────
@@ -128,16 +81,21 @@ service cloud.firestore {
 
     match /comments/{commentId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated() && request.resource.data.userId == currentUid();
-      allow update, delete: if isAuthenticated() && resource.data.userId == currentUid();
+      allow write: if isAuthenticated();
+    }
+
+    // ── Subtasks ──────────────────────────────────────────────────────────
+
+    match /subtasks/{subtaskId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated();
     }
 
     // ── Activity Logs ─────────────────────────────────────────────────────
 
     match /activity_logs/{logId} {
       allow read: if isAuthenticated();
-      allow create: if isAuthenticated();
-      allow update, delete: if false;
+      allow write: if isAuthenticated();
     }
   }
 }

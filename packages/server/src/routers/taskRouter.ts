@@ -6,8 +6,8 @@ import {
   ITaskRepository,
   ICommentRepository,
   IOrgRepository,
+  IProjectRepository,
 } from '../interfaces/repositories';
-import { getDb } from '../firebase/admin';
 
 const CreateTaskSchema = z.object({
   projectId: z.string(),
@@ -47,20 +47,22 @@ const CreateSubtaskSchema = z.object({
 export function buildTaskRouter(
   taskRepo: ITaskRepository,
   commentRepo: ICommentRepository,
-  orgRepo: IOrgRepository
+  orgRepo: IOrgRepository,
+  projectRepo: IProjectRepository
 ): Router {
   const router = Router();
-  const db = getDb();
 
-  /** Helper: resolve orgId from projectId */
+  /** Helper: resolve orgId from projectId and attach role to req.user */
   async function resolveOrgRole(
     req: Request,
     projectId: string
   ): Promise<void> {
-    const doc = await db.collection('projects').doc(projectId).get();
-    if (!doc.exists) return;
-    const orgId = doc.data()!.orgId as string;
-    const member = await orgRepo.getMember(orgId, req.user!.uid);
+    const project = await projectRepo.findById(projectId);
+    if (!project) return;
+    const member = await orgRepo.getMember(
+      project.orgId,
+      req.user!.uid
+    );
     if (member) req.user!.role = member.role;
   }
 

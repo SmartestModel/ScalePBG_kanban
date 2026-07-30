@@ -15,12 +15,28 @@ declare global {
 /**
  * Validates Firebase ID token from Authorization Bearer header.
  * Attaches decoded user to req.user.
+ *
+ * When USE_MOCK=true, skips token validation and injects a
+ * hardcoded demo user for every request.
  */
 export function requireAuth(
   req: Request,
   res: Response,
   next: NextFunction
 ): void {
+  // ── Mock bypass ─────────────────────────────────────────────
+  if (process.env.USE_MOCK === 'true') {
+    req.user = {
+      uid: 'demo-user-1',
+      email: 'demo@example.com',
+      name: 'Demo User',
+      avatarUrl: undefined,
+    };
+    next();
+    return;
+  }
+
+  // ── Production: validate Firebase ID token ───────────────────
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({

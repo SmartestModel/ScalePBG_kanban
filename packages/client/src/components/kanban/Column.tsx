@@ -2,7 +2,7 @@ import React from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Plus, AlertTriangle } from 'lucide-react';
-import { Task, BoardColumn as BoardColumnType } from '../../types';
+import { Task, BoardColumn as BoardColumnType, Epic, Story } from '../../types';
 import { TaskCard } from './TaskCard';
 
 interface ColumnProps {
@@ -10,6 +10,8 @@ interface ColumnProps {
   tasks: Task[];
   memberNames: Record<string, string>;
   memberAvatars: Record<string, string>;
+  epicsMap?: Record<string, Epic>;
+  storiesMap?: Record<string, Story>;
   onTaskClick: (task: Task) => void;
   onAddTask?: () => void;
 }
@@ -19,6 +21,8 @@ export const Column: React.FC<ColumnProps> = ({
   tasks,
   memberNames,
   memberAvatars,
+  epicsMap = {},
+  storiesMap = {},
   onTaskClick,
   onAddTask,
 }) => {
@@ -97,15 +101,22 @@ export const Column: React.FC<ColumnProps> = ({
               Drop tasks here
             </div>
           )}
-          {tasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              assigneeName={task.assigneeId ? memberNames[task.assigneeId] : undefined}
-              assigneeAvatar={task.assigneeId ? memberAvatars[task.assigneeId] : undefined}
-              onClick={onTaskClick}
-            />
-          ))}
+          {tasks.map((task) => {
+            const story = task.storyId ? storiesMap[task.storyId] : undefined;
+            const epic = story?.epicId ? epicsMap[story.epicId] : undefined;
+            return (
+              <TaskCard
+                key={task.id}
+                task={task}
+                assigneeName={task.assigneeId ? memberNames[task.assigneeId] : undefined}
+                assigneeAvatar={task.assigneeId ? memberAvatars[task.assigneeId] : undefined}
+                epicTitle={epic?.title}
+                epicColor={epic?.color}
+                storyTitle={story?.title}
+                onClick={onTaskClick}
+              />
+            );
+          })}
         </div>
       </SortableContext>
     </div>

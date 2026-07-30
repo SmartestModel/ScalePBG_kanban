@@ -1,7 +1,7 @@
 // ── Domain Entity Types ───────────────────────────────────────────────────────
 
 export type UserRole = 'admin' | 'lead' | 'member';
-export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskPriority = 'lowest' | 'low' | 'medium' | 'high' | 'urgent';
 export type TaskStatus =
   | 'backlog'
   | 'todo'

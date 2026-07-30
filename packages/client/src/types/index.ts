@@ -1,7 +1,7 @@
 // ── Domain Types (mirrors server types) ──────────────────────────────────────
 
 export type UserRole = 'admin' | 'lead' | 'member';
-export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskPriority = 'lowest' | 'low' | 'medium' | 'high' | 'urgent';
 export type TaskStatus = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'done';
 export type SprintStatus = 'planning' | 'active' | 'closed';
 export type AccessRequestStatus = 'pending' | 'approved' | 'rejected';

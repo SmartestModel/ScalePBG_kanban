@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -12,13 +12,14 @@ import {
 } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 import { Plus } from 'lucide-react';
-import { Task, BoardColumn as BoardColumnType, BOARD_COLUMNS, TaskStatus, OrgMember } from '../../types';
+import { Task, BoardColumn as BoardColumnType, BOARD_COLUMNS, TaskStatus, OrgMember, Epic, Story, TaskPriority } from '../../types';
 import { useBoardStore } from '../../store/useBoardStore';
+import { useAuthStore } from '../../store/useAuthStore';
 import { Column } from './Column';
 import { CardDetailModal } from './CardDetailModal';
 import { TaskCard } from './TaskCard';
 import { Modal } from '../common/Modal';
-import { createTask } from '../../services/api';
+import { createTask, getEpics, getStories } from '../../services/api';
 
 interface BoardProps {
   projectId: string;
@@ -48,6 +49,19 @@ export const Board: React.FC<BoardProps> = ({
   const [createColumn, setCreateColumn] = useState<TaskStatus>('todo');
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [createLoading, setCreateLoading] = useState(false);
+  const [epics, setEpics] = useState<Epic[]>([]);
+  const [stories, setStories] = useState<Story[]>([]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    Promise.all([getEpics(projectId), getStories(projectId)]).then(([eRes, sRes]) => {
+      if (eRes.success) setEpics(eRes.data ?? []);
+      if (sRes.success) setStories(sRes.data ?? []);
+    });
+  }, [projectId]);
+
+  const epicsMap = Object.fromEntries(epics.map((e) => [e.id, e]));
+  const storiesMap = Object.fromEntries(stories.map((s) => [s.id, s]));
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -56,10 +70,17 @@ export const Board: React.FC<BoardProps> = ({
   const memberNames = Object.fromEntries(members.map((m) => [m.uid, m.name ?? m.email ?? m.uid]));
   const memberAvatars = Object.fromEntries(members.map((m) => [m.uid, m.avatarUrl ?? '']));
 
+  const activeRole = useAuthStore((s) => s.activeRole);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'my-tasks'>(viewFilter);
+
+  useEffect(() => {
+    setActiveFilter(viewFilter);
+  }, [viewFilter]);
+
   // Filter tasks
   const allTasks = Object.values(tasks).filter((t) => t.projectId === projectId);
   const filteredTasks =
-    viewFilter === 'my-tasks' && currentUserId
+    activeFilter === 'my-tasks' && currentUserId
       ? allTasks.filter((t) => t.assigneeId === currentUserId)
       : allTasks;
 
@@ -103,6 +124,9 @@ export const Board: React.FC<BoardProps> = ({
     }
   };
 
+  const [newTaskAssignee, setNewTaskAssignee] = useState('');
+  const [newTaskPriority, setNewTaskPriority] = useState<TaskPriority>('medium');
+
   const handleCreateTask = async () => {
     if (!newTaskTitle.trim()) return;
     setCreateLoading(true);
@@ -111,10 +135,14 @@ export const Board: React.FC<BoardProps> = ({
         projectId,
         title: newTaskTitle.trim(),
         status: createColumn,
+        assigneeId: newTaskAssignee || undefined,
+        priority: newTaskPriority,
       });
       if (res.success && res.data) {
         upsertTask(res.data);
         setNewTaskTitle('');
+        setNewTaskAssignee('');
+        setNewTaskPriority('medium');
         setCreateModalOpen(false);
       }
     } finally {
@@ -135,10 +163,44 @@ export const Board: React.FC<BoardProps> = ({
           flexShrink: 0,
         }}
       >
-        <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-          {filteredTasks.length} tasks
-          {viewFilter === 'my-tasks' && ' (yours)'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+            {filteredTasks.length} tasks
+          </span>
+          <div style={{ display: 'flex', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', padding: 2, border: '1px solid var(--border-subtle)' }}>
+            <button
+              id="filter-all-tasks"
+              className={`btn btn-ghost btn-sm ${activeFilter === 'all' ? 'active' : ''}`}
+              style={{ fontSize: 11, padding: '3px 10px', fontWeight: activeFilter === 'all' ? 700 : 400 }}
+              onClick={() => setActiveFilter('all')}
+            >
+              All Tasks
+            </button>
+            <button
+              id="filter-my-tasks"
+              className={`btn btn-ghost btn-sm ${activeFilter === 'my-tasks' ? 'active' : ''}`}
+              style={{ fontSize: 11, padding: '3px 10px', fontWeight: activeFilter === 'my-tasks' ? 700 : 400 }}
+              onClick={() => setActiveFilter('my-tasks')}
+            >
+              My Tasks
+            </button>
+          </div>
+          <span
+            className="badge"
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.04em',
+              background: activeRole === 'admin' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+              color: activeRole === 'admin' ? 'var(--brand-primary)' : 'var(--accent-emerald)',
+              padding: '2px 8px',
+              borderRadius: 'var(--radius-full)',
+            }}
+          >
+            Role: {activeRole}
+          </span>
+        </div>
         <button
           id="board-add-task"
           className="btn btn-primary btn-sm"
@@ -178,6 +240,8 @@ export const Board: React.FC<BoardProps> = ({
               tasks={getColumnTasks(col.id)}
               memberNames={memberNames}
               memberAvatars={memberAvatars}
+              epicsMap={epicsMap}
+              storiesMap={storiesMap}
               onTaskClick={(task) => setSelectedTaskId(task.id)}
               onAddTask={() => {
                 setCreateColumn(col.id);
@@ -228,30 +292,65 @@ export const Board: React.FC<BoardProps> = ({
           </>
         }
       >
-        <div className="input-group">
-          <label className="input-label">Task Title</label>
-          <input
-            id="new-task-title"
-            className="input"
-            placeholder="What needs to be done?"
-            value={newTaskTitle}
-            onChange={(e) => setNewTaskTitle(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleCreateTask()}
-            autoFocus
-          />
-        </div>
-        <div className="input-group" style={{ marginTop: 12 }}>
-          <label className="input-label">Starting Column</label>
-          <select
-            id="new-task-column"
-            className="input"
-            value={createColumn}
-            onChange={(e) => setCreateColumn(e.target.value as TaskStatus)}
-          >
-            {BOARD_COLUMNS.map((c) => (
-              <option key={c.id} value={c.id}>{c.title}</option>
-            ))}
-          </select>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="input-group">
+            <label className="input-label">Task Title</label>
+            <input
+              id="new-task-title"
+              className="input"
+              placeholder="What needs to be done?"
+              value={newTaskTitle}
+              onChange={(e) => setNewTaskTitle(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleCreateTask()}
+              autoFocus
+            />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="input-group">
+              <label className="input-label">Starting Column</label>
+              <select
+                id="new-task-column"
+                className="input"
+                value={createColumn}
+                onChange={(e) => setCreateColumn(e.target.value as TaskStatus)}
+              >
+                {BOARD_COLUMNS.map((c) => (
+                  <option key={c.id} value={c.id}>{c.title}</option>
+                ))}
+              </select>
+            </div>
+            <div className="input-group">
+              <label className="input-label">Priority (5 Levels)</label>
+              <select
+                id="new-task-priority"
+                className="input"
+                value={newTaskPriority}
+                onChange={(e) => setNewTaskPriority(e.target.value as TaskPriority)}
+              >
+                <option value="lowest">🔵 Lowest</option>
+                <option value="low">🟢 Low</option>
+                <option value="medium">🟡 Medium</option>
+                <option value="high">🟠 High</option>
+                <option value="urgent">🔴 Urgent</option>
+              </select>
+            </div>
+          </div>
+          <div className="input-group">
+            <label className="input-label">Assignee</label>
+            <select
+              id="new-task-assignee"
+              className="input"
+              value={newTaskAssignee}
+              onChange={(e) => setNewTaskAssignee(e.target.value)}
+            >
+              <option value="">Unassigned</option>
+              {members.map((m) => (
+                <option key={m.uid} value={m.uid}>
+                  {m.name ?? m.email ?? m.uid}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </Modal>
     </div>

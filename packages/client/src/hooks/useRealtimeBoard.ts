@@ -4,6 +4,14 @@ import { db } from '../firebase/config';
 import { useBoardStore } from '../store/useBoardStore';
 import { Task } from '../types';
 
+const IS_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
+
+function parseDate(val: any): string {
+  if (typeof val === 'string' && val.length > 0) return val;
+  if (val?.toDate) return val.toDate().toISOString();
+  return new Date().toISOString();
+}
+
 /**
  * Subscribes to Firestore real-time updates for all tasks in a sprint.
  * Updates the board store on any remote change.
@@ -12,7 +20,7 @@ export function useRealtimeBoard(sprintId: string | null, taskIds: string[]) {
   const upsertTask = useBoardStore((s) => s.upsertTask);
 
   useEffect(() => {
-    if (!sprintId || taskIds.length === 0) return;
+    if (IS_MOCK || !sprintId || taskIds.length === 0) return;
 
     // Firestore 'in' has max 30 items per query — chunk if needed
     const chunkSize = 30;
@@ -42,8 +50,8 @@ export function useRealtimeBoard(sprintId: string | null, taskIds: string[]) {
             status: data.status ?? 'backlog',
             labelIds: data.labelIds ?? [],
             version: data.version ?? 1,
-            createdAt: data.createdAt?.toDate?.()?.toISOString() ?? '',
-            updatedAt: data.updatedAt?.toDate?.()?.toISOString() ?? '',
+            createdAt: parseDate(data.createdAt),
+            updatedAt: parseDate(data.updatedAt),
           } as Task);
         });
       });
@@ -62,7 +70,7 @@ export function useRealtimeTasks(projectId: string | null) {
   const removeTask = useBoardStore((s) => s.removeTask);
 
   useEffect(() => {
-    if (!projectId) return;
+    if (IS_MOCK || !projectId) return;
 
     const q = query(
       collection(db, 'tasks'),
@@ -88,8 +96,8 @@ export function useRealtimeTasks(projectId: string | null) {
           status: data.status ?? 'backlog',
           labelIds: data.labelIds ?? [],
           version: data.version ?? 1,
-          createdAt: data.createdAt?.toDate?.()?.toISOString() ?? '',
-          updatedAt: data.updatedAt?.toDate?.()?.toISOString() ?? '',
+          createdAt: parseDate(data.createdAt),
+          updatedAt: parseDate(data.updatedAt),
         } as Task);
       });
     });

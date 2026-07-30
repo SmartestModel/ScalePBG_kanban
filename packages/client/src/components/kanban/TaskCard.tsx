@@ -10,6 +10,9 @@ interface TaskCardProps {
   task: Task;
   assigneeName?: string;
   assigneeAvatar?: string;
+  epicTitle?: string;
+  epicColor?: string;
+  storyTitle?: string;
   commentCount?: number;
   subtaskCount?: number;
   subtaskDoneCount?: number;
@@ -20,6 +23,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   task,
   assigneeName,
   assigneeAvatar,
+  epicTitle,
+  epicColor = '#3B82F6',
+  storyTitle,
   commentCount = 0,
   subtaskCount = 0,
   subtaskDoneCount = 0,
@@ -68,6 +74,34 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
         <div className="task-card-meta">
           <PriorityBadge priority={task.priority} showLabel={false} />
+          {epicTitle && (
+            <span
+              className="badge"
+              style={{
+                background: `${epicColor}20`,
+                color: epicColor,
+                borderColor: `${epicColor}40`,
+                fontSize: 10,
+                padding: '1px 6px',
+              }}
+            >
+              ⚡ {epicTitle}
+            </span>
+          )}
+          {storyTitle && (
+            <span
+              className="badge"
+              style={{
+                background: 'var(--brand-subtle)',
+                color: 'var(--brand-primary)',
+                borderColor: 'hsla(217,91%,60%,0.3)',
+                fontSize: 10,
+                padding: '1px 6px',
+              }}
+            >
+              📖 {storyTitle}
+            </span>
+          )}
           {task.estimateHours > 0 && (
             <span
               style={{

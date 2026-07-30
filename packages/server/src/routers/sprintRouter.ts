@@ -5,8 +5,9 @@ import { assertCan } from '../auth/rbac';
 import {
   ISprintRepository,
   IOrgRepository,
+  IProjectRepository,
+  ITaskRepository,
 } from '../interfaces/repositories';
-import { getDb } from '../firebase/admin';
 
 const CreateSprintSchema = z.object({
   name: z.string().min(1).max(255),
@@ -25,15 +26,18 @@ const UpdateStatusSchema = z.object({
 
 export function buildSprintRouter(
   sprintRepo: ISprintRepository,
-  orgRepo: IOrgRepository
+  orgRepo: IOrgRepository,
+  projectRepo: IProjectRepository,
+  taskRepo: ITaskRepository
 ): Router {
   const router = Router();
-  const db = getDb();
 
   /** Helper: resolve orgId from projectId */
-  async function getOrgIdForProject(projectId: string): Promise<string | null> {
-    const doc = await db.collection('projects').doc(projectId).get();
-    return doc.exists ? (doc.data()!.orgId as string) : null;
+  async function getOrgIdForProject(
+    projectId: string
+  ): Promise<string | null> {
+    const project = await projectRepo.findById(projectId);
+    return project?.orgId ?? null;
   }
 
   /**
@@ -211,22 +215,14 @@ export function buildSprintRouter(
         const items = await sprintRepo.getItems(req.params.sprintId);
         const taskIds = items.map((i) => i.taskId);
 
-        // Fetch all tasks in parallel
-        const taskDocs = await Promise.all(
-          taskIds.map((id) => db.collection('tasks').doc(id).get())
-        );
+        // Fetch all tasks in parallel via taskRepo (mock-safe)
         const taskMap: Record<string, unknown> = {};
-        taskDocs.forEach((doc) => {
-          if (doc.exists) {
-            const d = doc.data()!;
-            taskMap[doc.id] = {
-              id: doc.id,
-              ...d,
-              createdAt: d.createdAt?.toDate?.()?.toISOString(),
-              updatedAt: d.updatedAt?.toDate?.()?.toISOString(),
-            };
-          }
-        });
+        await Promise.all(
+          taskIds.map(async (id) => {
+            const task = await taskRepo.findById(id);
+            if (task) taskMap[id] = task;
+          })
+        );
 
         res.json({ success: true, data: { items, tasks: taskMap } });
       } catch (err: unknown) {

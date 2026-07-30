@@ -5,28 +5,29 @@ import { AdminDashboard } from '../components/views/AdminDashboard';
 import { useAuthStore } from '../store/useAuthStore';
 import { useWorkspaceStore } from '../store/useWorkspaceStore';
 import { useBoardStore } from '../store/useBoardStore';
-import { getSprintBoard, getProjectSprints } from '../services/api';
-import { useRealtimeBoard } from '../hooks/useRealtimeBoard';
+import { getProjectSprints, getTasks, getOrgMembers } from '../services/api';
+import { useRealtimeTasks } from '../hooks/useRealtimeBoard';
 import { OrgMember } from '../types';
-import { getOrgMembers } from '../services/api';
 
 export const BoardPage: React.FC = () => {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const view = searchParams.get('view') ?? 'board';
+  const filter = searchParams.get('filter') ?? 'all';
 
   const activeRole = useAuthStore((s) => s.activeRole);
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
   const user = useAuthStore((s) => s.user);
   const activeProject = useWorkspaceStore((s) => s.activeProject);
   const activeSprint = useWorkspaceStore((s) => s.activeSprint);
-  const sprints = useWorkspaceStore((s) => s.sprints);
   const setSprints = useWorkspaceStore((s) => s.setSprints);
   const setActiveSprint = useWorkspaceStore((s) => s.setActiveSprint);
   const setTasks = useBoardStore((s) => s.setTasks);
 
   const [members, setMembers] = useState<OrgMember[]>([]);
-  const [sprintTaskIds, setSprintTaskIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Real-time task sync via Firestore onSnapshot for active project
+  useRealtimeTasks(activeProject?.id ?? null);
 
   // Load members
   useEffect(() => {
@@ -36,33 +37,25 @@ export const BoardPage: React.FC = () => {
     });
   }, [activeOrgId]);
 
-  // Load active sprint's board
+  // Load active project's sprints and tasks immediately on mount/refresh
   useEffect(() => {
     if (!activeProject) return;
-
-    // Load sprints and select active one
-    getProjectSprints(activeProject.id).then((res) => {
-      if (!res.success || !res.data) return;
-      setSprints(res.data);
-      const active = res.data.find((s) => s.status === 'active') ?? res.data[0];
-      if (active) setActiveSprint(active);
-    });
-  }, [activeProject?.id]);
-
-  // Load board tasks when sprint changes
-  useEffect(() => {
-    if (!activeSprint) return;
     setIsLoading(true);
-    getSprintBoard(activeSprint.id).then((res) => {
-      if (!res.success || !res.data) return;
-      const taskList = Object.values(res.data.tasks);
-      setTasks(taskList);
-      setSprintTaskIds(taskList.map((t) => t.id));
-    }).finally(() => setIsLoading(false));
-  }, [activeSprint?.id]);
 
-  // Real-time board sync via Firestore onSnapshot
-  useRealtimeBoard(activeSprint?.id ?? null, sprintTaskIds);
+    Promise.all([
+      getTasks(activeProject.id),
+      getProjectSprints(activeProject.id),
+    ]).then(([tasksRes, sprintsRes]) => {
+      if (tasksRes.success && tasksRes.data) {
+        setTasks(tasksRes.data);
+      }
+      if (sprintsRes.success && sprintsRes.data) {
+        setSprints(sprintsRes.data);
+        const active = sprintsRes.data.find((s) => s.status === 'active') ?? sprintsRes.data[0];
+        if (active) setActiveSprint(active);
+      }
+    }).finally(() => setIsLoading(false));
+  }, [activeProject?.id]);
 
   if (!activeProject) {
     return (
@@ -106,7 +99,7 @@ export const BoardPage: React.FC = () => {
       projectId={activeProject.id}
       sprintId={activeSprint?.id}
       members={members}
-      viewFilter={view === 'my-tasks' ? 'my-tasks' : 'all'}
+      viewFilter={filter === 'my-tasks' ? 'my-tasks' : 'all'}
       currentUserId={user?.id}
     />
   );
